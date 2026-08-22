@@ -96,5 +96,12 @@ require 'pack'
 -- [[ Configure and install plugins ]]
 require 'plugins'
 
+-- Load custom options (not plugins, but keeps customizations separate from kickstart)
+require 'custom.options'
+
+-- Per-language setup (LSP + formatter + treesitter), one file per language
+-- in `lua/custom/lang/`. Loaded after `plugins` so mason/conform/treesitter exist.
+require 'custom.lang'
+
 -- The line beneath this is called `modeline`. See `:help modeline`
 -- vim: ts=2 sts=2 sw=2 et
