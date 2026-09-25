@@ -99,7 +99,11 @@ local function jdtls_config(bufnr)
             -- every import of a generated class is unresolved.
             --
             -- 'execute' makes m2e run those executions during project
-            -- configuration, which registers the generated source roots.
+            -- configuration, which registers the generated source roots, but
+            -- only for plugins m2e actually has a connector for. Plugins
+            -- without one (e.g. graphql-maven-plugin) still won't register
+            -- their source roots this way — wrap them with
+            -- build-helper-maven-plugin's add-source goal in the pom instead.
             -- 'ignore' | 'warn' | 'error' | 'execute'
             defaultMojoExecutionAction = 'execute',
           },
@@ -120,7 +124,6 @@ local function jdtls_config(bufnr)
             staticStarThreshold = 9999,
           },
         },
-
         codeGeneration = {
           toString = {
             template = '${object.className}{${member.name()}=${member.value}, ${otherMembers}}',
