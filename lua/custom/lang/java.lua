@@ -59,11 +59,72 @@ end
 ---@return string
 local function workspace_dir(root) return vim.fn.stdpath 'cache' .. '/jdtls/' .. vim.fn.fnamemodify(root, ':p:h:t') end
 
--- Same markers nvim-lspconfig's `lsp/jdtls.lua` uses, most specific first.
-local root_markers = { 'settings.gradle', 'settings.gradle.kts', 'pom.xml', 'build.gradle', 'build.gradle.kts', 'mvnw', 'gradlew', '.git' }
+--- m2e lifecycle-mapping overrides, passed to jdtls via
+--- `java.configuration.maven.lifecycleMappings`. With
+--- `defaultMojoExecutionAction = 'execute'` below, m2e would otherwise run
+--- *every* unmapped plugin inside the jdtls JVM — including formatters. Those
+--- are unwanted in the editor (they rewrite files behind your back) and often
+--- crash anyway: google-java-format needs `--add-exports jdk.compiler/...`,
+--- which projects supply via `.mvn/jvm.config`, a file m2e never reads.
+---
+--- Generated from here so this file stays the single place Java lives.
+---@return string path to the metadata XML
+local function lifecycle_mappings()
+  local path = vim.fn.stdpath 'cache' .. '/jdtls/lifecycle-mapping-metadata.xml'
+  local ignored = {
+    { 'com.cosium.code', 'git-code-format-maven-plugin', { 'format-code', 'validate-code-format', 'install-hooks', 'on-pre-commit' } },
+    { 'com.spotify.fmt', 'fmt-maven-plugin', { 'format', 'check' } },
+    { 'com.diffplug.spotless', 'spotless-maven-plugin', { 'apply', 'check' } },
+  }
+
+  local lines = { '<?xml version="1.0" encoding="UTF-8"?>', '<lifecycleMappingMetadata>', '  <pluginExecutions>' }
+  for _, p in ipairs(ignored) do
+    vim.list_extend(lines, {
+      '    <pluginExecution>',
+      '      <pluginExecutionFilter>',
+      '        <groupId>' .. p[1] .. '</groupId>',
+      '        <artifactId>' .. p[2] .. '</artifactId>',
+      '        <versionRange>[0,)</versionRange>',
+      '        <goals>',
+    })
+    vim.list_extend(lines, vim.tbl_map(function(g) return '          <goal>' .. g .. '</goal>' end, p[3]))
+    vim.list_extend(lines, { '        </goals>', '      </pluginExecutionFilter>', '      <action><ignore/></action>', '    </pluginExecution>' })
+  end
+  vim.list_extend(lines, { '  </pluginExecutions>', '</lifecycleMappingMetadata>' })
+
+  vim.fn.mkdir(vim.fs.dirname(path), 'p')
+  vim.fn.writefile(lines, path)
+  return path
+end
+
+--- Find the directory jdtls should import as the workspace root.
+---
+--- The nearest `pom.xml` is only right for single-module builds. In a Maven
+--- reactor it is the module's own pom, so jdtls imports that one module alone
+--- and sibling modules resolve from ~/.m2. An unreleased -SNAPSHOT is missing
+--- there, which leaves every import from a sibling module unresolved. Climbing
+--- to the outermost contiguous `pom.xml` imports the whole reactor, and m2e
+--- then links siblings as workspace projects.
+---@param bufnr integer
+---@return string
+local function find_root(bufnr)
+  local root = vim.fs.root(bufnr, { 'settings.gradle', 'settings.gradle.kts', 'mvnw', 'gradlew' })
+  if root then return root end
+
+  local pom = vim.fs.root(bufnr, 'pom.xml')
+  if pom then
+    for dir in vim.fs.parents(pom) do
+      if not vim.uv.fs_stat(dir .. '/pom.xml') then break end
+      pom = dir
+    end
+    return pom
+  end
+
+  return vim.fs.root(bufnr, { 'build.gradle', 'build.gradle.kts', '.git' }) or vim.fn.getcwd()
+end
 
 local function jdtls_config(bufnr)
-  local root = vim.fs.root(bufnr, root_markers) or vim.fn.getcwd()
+  local root = find_root(bufnr)
 
   ---@type table
   local config = {
@@ -106,6 +167,8 @@ local function jdtls_config(bufnr)
             -- build-helper-maven-plugin's add-source goal in the pom instead.
             -- 'ignore' | 'warn' | 'error' | 'execute'
             defaultMojoExecutionAction = 'execute',
+            -- ...except for formatters, see `lifecycle_mappings()`.
+            lifecycleMappings = lifecycle_mappings(),
           },
         },
         completion = {
