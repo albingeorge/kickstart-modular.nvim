@@ -103,5 +103,9 @@ require 'custom.options'
 -- in `lua/custom/lang/`. Loaded after `plugins` so mason/conform/treesitter exist.
 require 'custom.lang'
 
+-- Personal keymaps, one file per feature in `lua/custom/keybinds/`.
+-- Loaded after `plugins` so keymaps can use plugin <Plug> mappings (e.g. Yanky).
+require 'custom.keybinds'
+
 -- The line beneath this is called `modeline`. See `:help modeline`
 -- vim: ts=2 sts=2 sw=2 et
